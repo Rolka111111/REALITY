@@ -1,4 +1,4 @@
-module github.com/xtls/reality
+module github.com/LuckyLuke-a/reality
 
 go 1.21
 
