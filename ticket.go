@@ -1,6 +1,6 @@
 // Copyright 2012 The Go Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
-// license that can be found in the LICENSE-Go file.
+// license that can be found in the LICENSE file.
 
 package reality
 
@@ -90,12 +90,13 @@ type SessionState struct {
 	activeCertHandles []*activeCert
 	ocspResponse      []byte
 	scts              [][]byte
-	verifiedChains [][]*x509.Certificate
+	verifiedChains    [][]*x509.Certificate
 	alpnProtocol      string // only set if EarlyData is true
 
 	// Client-side TLS 1.3-only fields.
 	useBy  uint64 // seconds since UNIX epoch
 	ageAdd uint32
+	ticket []byte
 }
 
 // Bytes encodes the session, including any private fields, so that it can be
@@ -289,7 +290,7 @@ func ParseSessionState(data []byte) (*SessionState, error) {
 
 // sessionState returns a partially filled-out [SessionState] with information
 // from the current connection.
-func (c *Conn) sessionState() (*SessionState, error) {
+func (c *Conn) sessionState() *SessionState {
 	return &SessionState{
 		version:           c.vers,
 		cipherSuite:       c.cipherSuite,
@@ -302,7 +303,7 @@ func (c *Conn) sessionState() (*SessionState, error) {
 		isClient:          c.isClient,
 		extMasterSecret:   c.extMasterSecret,
 		verifiedChains:    c.verifiedChains,
-	}, nil
+	}
 }
 
 // EncryptTicket encrypts a ticket with the [Config]'s configured (or default)
@@ -370,6 +371,7 @@ func (c *Config) decryptTicket(encrypted []byte, ticketKeys []ticketKey) []byte 
 	ciphertext := encrypted[aes.BlockSize : len(encrypted)-sha256.Size]
 	authenticated := encrypted[:len(encrypted)-sha256.Size]
 	macBytes := encrypted[len(encrypted)-sha256.Size:]
+
 	for _, key := range ticketKeys {
 		mac := hmac.New(sha256.New, key.hmacKey[:])
 		mac.Write(authenticated)
@@ -395,7 +397,6 @@ func (c *Config) decryptTicket(encrypted []byte, ticketKeys []ticketKey) []byte 
 // ClientSessionState contains the state needed by a client to
 // resume a previous TLS session.
 type ClientSessionState struct {
-	ticket  []byte
 	session *SessionState
 }
 
@@ -405,7 +406,10 @@ type ClientSessionState struct {
 // It can be called by [ClientSessionCache.Put] to serialize (with
 // [SessionState.Bytes]) and store the session.
 func (cs *ClientSessionState) ResumptionState() (ticket []byte, state *SessionState, err error) {
-	return cs.ticket, cs.session, nil
+	if cs == nil || cs.session == nil {
+		return nil, nil, nil
+	}
+	return cs.session.ticket, cs.session, nil
 }
 
 // NewResumptionState returns a state value that can be returned by
@@ -414,7 +418,8 @@ func (cs *ClientSessionState) ResumptionState() (ticket []byte, state *SessionSt
 // state needs to be returned by [ParseSessionState], and the ticket and session
 // state must have been returned by [ClientSessionState.ResumptionState].
 func NewResumptionState(ticket []byte, state *SessionState) (*ClientSessionState, error) {
+	state.ticket = ticket
 	return &ClientSessionState{
-		ticket: ticket, session: state,
+		session: state,
 	}, nil
 }

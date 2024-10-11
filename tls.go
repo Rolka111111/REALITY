@@ -1,9 +1,9 @@
 // Copyright 2009 The Go Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
-// license that can be found in the LICENSE-Go file.
+// license that can be found in the LICENSE file.
 
-// Server side implementation of REALITY protocol, a fork of package tls in Go 1.20.
-// For client side, please follow https://github.com/XTLS/Xray-core/blob/main/transport/internet/reality/reality.go.
+// Package tls partially implements TLS 1.2, as specified in RFC 5246,
+// and TLS 1.3, as specified in RFC 8446.
 package reality
 
 // BUG(agl): The crypto/tls package only implements some countermeasures
@@ -34,6 +34,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/LuckyLuke-a/reality/mlkem768"
 	"github.com/pires/go-proxyproto"
 	"golang.org/x/crypto/chacha20poly1305"
 	"golang.org/x/crypto/curve25519"
@@ -186,7 +187,7 @@ func Server(ctx context.Context, conn net.Conn, config *Config) (*Conn, error) {
 				plainText := make([]byte, 32)
 				copy(ciphertext, hs.clientHello.sessionId)
 				copy(hs.clientHello.sessionId, plainText) // hs.clientHello.sessionId points to hs.clientHello.raw[39:]
-				if _, err = aead.Open(plainText[:0], hs.clientHello.random[20:], ciphertext, hs.clientHello.raw); err != nil {
+				if _, err = aead.Open(plainText[:0], hs.clientHello.random[20:], ciphertext, hs.clientHello.original); err != nil {
 					break
 				}
 				copy(hs.clientHello.sessionId, ciphertext)
@@ -290,7 +291,7 @@ func Server(ctx context.Context, conn net.Conn, config *Config) (*Conn, error) {
 					if !hs.hello.unmarshal(s2cSaved[recordHeaderLen:handshakeLen]) ||
 						hs.hello.vers != VersionTLS12 || hs.hello.supportedVersion != VersionTLS13 ||
 						cipherSuiteTLS13ByID(hs.hello.cipherSuite) == nil ||
-						hs.hello.serverShare.group != X25519 || len(hs.hello.serverShare.data) != 32 {
+						!((hs.hello.serverShare.group == X25519 && len(hs.hello.serverShare.data) == 32) || (hs.hello.serverShare.group == x25519Kyber768Draft00 && len(hs.hello.serverShare.data) == x25519PublicKeySize+mlkem768.CiphertextSize)) {
 						break f
 					}
 				}
@@ -579,11 +580,14 @@ func (d *Dialer) DialContext(ctx context.Context, network, addr string) (net.Con
 	return c, nil
 }
 
-// LoadX509KeyPair reads and parses a public/private key pair from a pair
-// of files. The files must contain PEM encoded data. The certificate file
-// may contain intermediate certificates following the leaf certificate to
-// form a certificate chain. On successful return, Certificate.Leaf will
-// be nil because the parsed form of the certificate is not retained.
+// LoadX509KeyPair reads and parses a public/private key pair from a pair of
+// files. The files must contain PEM encoded data. The certificate file may
+// contain intermediate certificates following the leaf certificate to form a
+// certificate chain. On successful return, Certificate.Leaf will be populated.
+//
+// Before Go 1.23 Certificate.Leaf was left nil, and the parsed certificate was
+// discarded. This behavior can be re-enabled by setting "x509keypairleaf=0"
+// in the GODEBUG environment variable.
 func LoadX509KeyPair(certFile, keyFile string) (Certificate, error) {
 	certPEMBlock, err := os.ReadFile(certFile)
 	if err != nil {
@@ -597,8 +601,11 @@ func LoadX509KeyPair(certFile, keyFile string) (Certificate, error) {
 }
 
 // X509KeyPair parses a public/private key pair from a pair of
-// PEM encoded data. On successful return, Certificate.Leaf will be nil because
-// the parsed form of the certificate is not retained.
+// PEM encoded data. On successful return, Certificate.Leaf will be populated.
+//
+// Before Go 1.23 Certificate.Leaf was left nil, and the parsed certificate was
+// discarded. This behavior can be re-enabled by setting "x509keypairleaf=0"
+// in the GODEBUG environment variable.
 func X509KeyPair(certPEMBlock, keyPEMBlock []byte) (Certificate, error) {
 	fail := func(err error) (Certificate, error) { return Certificate{}, err }
 
@@ -652,7 +659,7 @@ func X509KeyPair(certPEMBlock, keyPEMBlock []byte) (Certificate, error) {
 	if err != nil {
 		return fail(err)
 	}
-
+	cert.Leaf = x509Cert
 	cert.PrivateKey, err = parsePrivateKey(keyDERBlock.Bytes)
 	if err != nil {
 		return fail(err)
