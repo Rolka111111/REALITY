@@ -31,7 +31,7 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"errors"
-	"github.com/LuckyLuke-a/reality/byteorder"
+	"github.com/Rolka111111/reality/byteorder"
 
 	"golang.org/x/crypto/sha3"
 )
