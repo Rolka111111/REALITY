@@ -5,7 +5,7 @@
 package reality
 
 import (
-	"github.com/LuckyLuke-a/reality/hpke"
+	"github.com/Rolka111111/reality/hpke"
 	"errors"
 	"strings"
 
