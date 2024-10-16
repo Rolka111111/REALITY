@@ -21,8 +21,8 @@ import (
 	"slices"
 	"time"
 
-	"github.com/LuckyLuke-a/reality/byteorder"
-	"github.com/LuckyLuke-a/reality/mlkem768"
+	"github.com/Rolka111111/reality/byteorder"
+	"github.com/Rolka111111/reality/mlkem768"
 )
 
 // maxClientPSKIdentities is the number of client PSK identities the server will
